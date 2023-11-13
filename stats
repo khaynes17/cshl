@@ -1,0 +1,80 @@
+###CSHL Stats###
+
+##load packages
+library(pacman)
+p_load(dplyr, tidyr, readr, magrittr, maptools, ggmap, foreign, ggplot2, stringr, scales, tigris, acs, RColorBrewer, sp,
+       janitor, tidycensus, sf, rgdal, raster, tidyverse, tidygeocoder, googlesheets4 )
+
+##clear workspace
+
+remove(list = ls())
+
+##Authorize google account
+
+gs4_auth()
+
+##Grab raw stats
+
+player_stats <- read_sheet("https://docs.google.com/spreadsheets/d/1ZZmONIbcgx77BV_keI4nvGOR8xx3z3KoyFML3XAJkPw/edit#gid=0")
+team_stats <- read_sheet("https://docs.google.com/spreadsheets/d/1ZZmONIbcgx77BV_keI4nvGOR8xx3z3KoyFML3XAJkPw/edit#gid=28529432", sheet="raw - team")
+
+###calculate player totals
+
+player_totals <- player_stats %>%
+  filter(Session=="Super Monday League 2") %>%
+  group_by(Player, Team) %>%
+  summarise(G=sum(Goals),
+            A=sum(Assists),
+            Pen=sum(Penalties)) %>%
+  mutate(Points=(G+A))
+
+player_games_played <- tabyl(player_stats, Player) %>%
+  rename(GP=n) %>%
+  dplyr::select(Player, GP)
+
+player_totals_with_GP <- left_join(player_totals, player_games_played, by="Player") %>%
+  mutate(G_per_G=(G/GP),
+         A_per_G=(A/GP),
+         Pts_per_G=Points/GP) %>%
+  mutate(SI=(G/Points))
+
+###calculate team totals
+
+team_totals <- team_stats %>%
+filter(Session=="Super Monday League 2") %>%
+  group_by(Team) %>%
+  summarise(Goals=sum(GF),
+            Goals_Allowed=sum(GA),
+            Diff=(Goals-Goals_Allowed),
+            Wins=sum(W),
+            Losses=sum(L),
+            OT_Losses=sum(OTL),
+            GP=(Wins+Losses)) %>%
+  mutate(Points=(Wins*2)+(OT_Losses)) %>%
+  distinct()
+
+###calculate goalie stats
+
+goalie_totals <- team_stats %>%
+  filter(Session=="Super Monday League 2") %>%
+  mutate(Game=1) %>%
+  group_by(Goalie) %>%
+  summarise(GA_total=sum(GA),
+            Shots_Faced=sum(SA),
+            GP=sum(Game)) %>%
+  mutate(One=1)
+  #fix blocks
+  goalie_totals$GA_total[goalie_totals$Goalie=="Jon 'Blocks' Kleinhenz"] <- 46
+  
+  goalie_totals <- goalie_totals %>%
+  mutate(Save_Pct=(GA_total/Shots_Faced)) %>%
+  mutate(Save_Pct=(One-Save_Pct)) %>%
+  mutate(GAA=GA_total/GP)
+
+
+###update data
+
+sheet_write(player_totals_with_GP, "https://docs.google.com/spreadsheets/d/1ZZmONIbcgx77BV_keI4nvGOR8xx3z3KoyFML3XAJkPw/edit#gid=742696887", sheet = "Player Stats")
+sheet_write(team_totals, "https://docs.google.com/spreadsheets/d/1ZZmONIbcgx77BV_keI4nvGOR8xx3z3KoyFML3XAJkPw/edit#gid=1849610595", sheet = "Team Stats")
+sheet_write(goalie_totals, "https://docs.google.com/spreadsheets/d/1ZZmONIbcgx77BV_keI4nvGOR8xx3z3KoyFML3XAJkPw/edit#gid=1849610595", sheet = "Goalie Stats")
+  
